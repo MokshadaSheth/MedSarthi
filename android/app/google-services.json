@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "840884341922",
+    "project_id": "med-sarathi",
+    "storage_bucket": "med-sarathi.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:840884341922:android:77d043bc7f024aed629bfb",
+        "android_client_info": {
+          "package_name": "com.example.med_sarthi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "840884341922-hl6gf3bhpma3bhpgnmcij5ge99ovod67.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.med_sarthi",
+            "certificate_hash": "f441c8d7d150038c0137a6292ce5501d409896a4"
+          }
+        },
+        {
+          "client_id": "840884341922-gr5tt70qnd4flkaubvlis8jiq45c3eh4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDk4UC2axxENU_13tXN3h_nDLBgsDNsGMg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "840884341922-gr5tt70qnd4flkaubvlis8jiq45c3eh4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
