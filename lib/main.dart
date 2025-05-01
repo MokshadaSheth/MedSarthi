@@ -1,3 +1,4 @@
+// main.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:med_sarathi/features/app/splash_screen/splash_screen.dart';
@@ -21,22 +22,12 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primaryColor: const Color(0xFF0D47A1),
         scaffoldBackgroundColor: const Color(0xFFE3F2FD),
-        textTheme: const TextTheme(
-          bodyMedium: TextStyle(fontSize: 16),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF0D47A1),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          ),
-        ),
       ),
       initialRoute: '/',
       routes: {
-        '/': (context) => SplashScreen(), // or LoginScreen, etc.
-        '/home': (context) => HomePage(),
-        '/login': (context) => LoginPage(),
+        '/': (context) => const SplashScreen(),
+        '/home': (context) => const HomePage(),
+        '/login': (context) => const LoginPage(),
       },
     );
   }
