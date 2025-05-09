@@ -1,3 +1,4 @@
+// signup_page.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:med_sarathi/features/user_auth/firebase_auth_implementation/firebase_auth_services.dart';
@@ -22,7 +23,6 @@ class _SignupPageState extends State<SignupPage> {
 
   String? _errorMessage;
 
-  // Password visibility toggles
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
@@ -54,9 +54,9 @@ class _SignupPageState extends State<SignupPage> {
           "phone": phone,
           "email": email,
           "createdAt": FieldValue.serverTimestamp(),
+          "authProvider": "email",
         });
 
-        print("✅ User data saved to Firestore.");
         Navigator.pushNamed(context, "/login");
       } else {
         setState(() {
@@ -78,8 +78,10 @@ class _SignupPageState extends State<SignupPage> {
     try {
       User? user = await _auth.signInWithGoogle();
       if (user != null) {
-        // Check if user already exists in Firestore
-        DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection("Users").doc(user.uid).get();
+        DocumentSnapshot userDoc = await FirebaseFirestore.instance
+            .collection("Users")
+            .doc(user.uid)
+            .get();
 
         if (!userDoc.exists) {
           await FirebaseFirestore.instance.collection("Users").doc(user.uid).set({
@@ -89,12 +91,9 @@ class _SignupPageState extends State<SignupPage> {
             "createdAt": FieldValue.serverTimestamp(),
             "authProvider": "google",
           });
-          print("🆕 New Google user added to Firestore");
-        } else {
-          print("🔁 Existing Google user logged in");
         }
 
-        Navigator.pushNamed(context, "/login"); 
+        Navigator.pushNamed(context, "/login");
       }
     } catch (e) {
       setState(() {
@@ -133,8 +132,6 @@ class _SignupPageState extends State<SignupPage> {
                 ),
               ),
               const SizedBox(height: 30),
-
-              // Username Field
               TextField(
                 controller: _usernameController,
                 decoration: InputDecoration(
@@ -144,8 +141,6 @@ class _SignupPageState extends State<SignupPage> {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Email Field
               TextField(
                 controller: _emailController,
                 decoration: InputDecoration(
@@ -155,8 +150,6 @@ class _SignupPageState extends State<SignupPage> {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Phone Number
               TextField(
                 controller: _phoneController,
                 keyboardType: TextInputType.phone,
@@ -167,8 +160,6 @@ class _SignupPageState extends State<SignupPage> {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Password Field
               TextField(
                 controller: _passwordController,
                 obscureText: _obscurePassword,
@@ -189,8 +180,6 @@ class _SignupPageState extends State<SignupPage> {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Confirm Password Field
               TextField(
                 controller: _confirmPasswordController,
                 obscureText: _obscureConfirmPassword,
@@ -211,24 +200,19 @@ class _SignupPageState extends State<SignupPage> {
                 ),
               ),
               const SizedBox(height: 10),
-
               if (_errorMessage != null)
                 Text(
                   _errorMessage!,
                   style: const TextStyle(color: Colors.red),
                 ),
               const SizedBox(height: 20),
-
               ElevatedButton(
                 onPressed: _registerUser,
                 child: const Text('Register', style: TextStyle(fontSize: 18, color: Colors.white)),
               ),
               const SizedBox(height: 16),
-
               const Text('Or Signup using', style: TextStyle(color: Colors.black54)),
               const SizedBox(height: 12),
-
-              // Google Sign-In Button
               ElevatedButton.icon(
                 onPressed: _signInWithGoogle,
                 icon: const Icon(Icons.g_mobiledata, color: Colors.white),
@@ -239,9 +223,7 @@ class _SignupPageState extends State<SignupPage> {
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
               ),
-
               const SizedBox(height: 24),
-
               GestureDetector(
                 onTap: () {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginPage()));
