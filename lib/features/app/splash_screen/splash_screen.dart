@@ -31,7 +31,7 @@ class _SplashScreenState extends State<SplashScreen> {
             Icon(Icons.medication, size: 100, color: Colors.white),
             SizedBox(height: 20),
             Text(
-              'MedSarathi',
+              'MedSarthi',
               style: TextStyle(
                 fontSize: 28,
                 color: Colors.white,

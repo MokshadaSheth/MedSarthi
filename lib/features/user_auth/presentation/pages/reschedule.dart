@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
+import 'package:med_sarathi/themes/theme_provider.dart';
 
 class ReschedulePage extends StatefulWidget {
   const ReschedulePage({super.key});
@@ -17,11 +19,19 @@ class _ReschedulePageState extends State<ReschedulePage> {
   bool _isLoading = true;
   String? _errorMessage;
   bool _indexError = false;
+  final Map<String, TextEditingController> _editControllers = {};
 
   @override
   void initState() {
     super.initState();
     _loadReminders();
+  }
+
+  @override
+  void dispose() {
+    // Dispose all edit controllers
+    _editControllers.forEach((_, controller) => controller.dispose());
+    super.dispose();
   }
 
   void _loadReminders() {
@@ -41,7 +51,6 @@ class _ReschedulePageState extends State<ReschedulePage> {
     });
 
     try {
-      // Modified query to avoid the index requirement
       _remindersStream = _firestore
           .collection('Users')
           .doc(user.uid)
@@ -73,6 +82,179 @@ class _ReschedulePageState extends State<ReschedulePage> {
     }
   }
 
+  Future<void> _showEditDialog(Map<String, dynamic> data, String docId) async {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    // Initialize controllers if not already done
+    if (!_editControllers.containsKey(docId)) {
+      _editControllers[docId] = TextEditingController(text: data['medication']);
+    }
+    if (!_editControllers.containsKey('${docId}_dosage')) {
+      _editControllers['${docId}_dosage'] = TextEditingController(text: data['dosage']);
+    }
+    if (!_editControllers.containsKey('${docId}_notes')) {
+      _editControllers['${docId}_notes'] = TextEditingController(text: data['notes'] ?? '');
+    }
+
+    TimeOfDay? selectedTime;
+    try {
+      final timeParts = data['time'].split(':');
+      selectedTime = TimeOfDay(
+        hour: int.parse(timeParts[0]),
+        minute: int.parse(timeParts[1]),
+      );
+    } catch (e) {
+      selectedTime = TimeOfDay.now();
+    }
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('Edit Reminder', style: theme.textTheme.headlineSmall),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: _editControllers[docId],
+                      decoration: InputDecoration(
+                        labelText: 'Medication',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _editControllers['${docId}_dosage'],
+                      decoration: InputDecoration(
+                        labelText: 'Dosage',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    InkWell(
+                      onTap: () async {
+                        final time = await showTimePicker(
+                          context: context,
+                          initialTime: selectedTime ?? TimeOfDay.now(),
+                        );
+                        if (time != null) {
+                          setState(() => selectedTime = time);
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          labelText: 'Time',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.access_time, color: colorScheme.primary),
+                            const SizedBox(width: 8),
+                            Text(
+                              selectedTime?.format(context) ?? 'Select time',
+                              style: theme.textTheme.bodyLarge,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _editControllers['${docId}_notes'],
+                      decoration: InputDecoration(
+                        labelText: 'Notes (optional)',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      maxLines: 3,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('Cancel', style: theme.textTheme.bodyLarge),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colorScheme.primary,
+                    foregroundColor: colorScheme.onPrimary,
+                  ),
+                  onPressed: () async {
+                    await _updateReminder(
+                      docId,
+                      _editControllers[docId]!.text,
+                      _editControllers['${docId}_dosage']!.text,
+                      selectedTime!,
+                      _editControllers['${docId}_notes']!.text,
+                    );
+                    if (mounted) Navigator.pop(context);
+                  },
+                  child: Text('Save', style: theme.textTheme.bodyLarge),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _updateReminder(
+      String docId,
+      String medication,
+      String dosage,
+      TimeOfDay time,
+      String notes,
+      ) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await _firestore
+          .collection('Users')
+          .doc(user.uid)
+          .collection('reminders')
+          .doc(docId)
+          .update({
+        'medication': medication,
+        'dosage': dosage,
+        'time': '${time.hour}:${time.minute}',
+        'notes': notes,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reminder updated successfully'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating reminder: ${e.toString()}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _rescheduleReminder(String docId, String currentTime) async {
     final currentTimeOfDay = TimeOfDay(
       hour: int.parse(currentTime.split(':')[0]),
@@ -82,19 +264,6 @@ class _ReschedulePageState extends State<ReschedulePage> {
     final newTime = await showTimePicker(
       context: context,
       initialTime: currentTimeOfDay,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Colors.blueAccent,
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
     );
 
     if (newTime != null) {
@@ -119,6 +288,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
           SnackBar(
             content: Text('Reminder rescheduled to ${_formatTime(newTimeString)}'),
             behavior: SnackBarBehavior.floating,
+            backgroundColor: Theme.of(context).colorScheme.primary,
           ),
         );
       } catch (e) {
@@ -126,21 +296,61 @@ class _ReschedulePageState extends State<ReschedulePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error rescheduling: ${e.toString()}'),
-            backgroundColor: Colors.red,
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
     }
   }
 
+  Future<void> _deleteReminder(String docId) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await _firestore
+          .collection('Users')
+          .doc(user.uid)
+          .collection('reminders')
+          .doc(docId)
+          .delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reminder deleted successfully'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting reminder: ${e.toString()}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Reschedule Reminders'),
+        title: Text(
+          'Reschedule Reminders',
+          style: theme.textTheme.headlineSmall?.copyWith(
+            color: colorScheme.onPrimary,
+          ),
+        ),
+        backgroundColor: colorScheme.primary,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: Icon(Icons.refresh, color: colorScheme.onPrimary),
             onPressed: _loadReminders,
           ),
         ],
@@ -181,8 +391,11 @@ class _ReschedulePageState extends State<ReschedulePage> {
 
           final reminders = snapshot.data?.docs ?? [];
           if (reminders.isEmpty) {
-            return const Center(
-              child: Text('No active reminders found'),
+            return Center(
+              child: Text(
+                'No active reminders found',
+                style: theme.textTheme.bodyLarge,
+              ),
             );
           }
 
@@ -212,41 +425,56 @@ class _ReschedulePageState extends State<ReschedulePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        mainAxisAlignment:
-                        MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
                             data['medication'] ?? 'No medication',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: theme.textTheme.titleLarge,
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.edit,
-                                color: Colors.blueAccent),
-                            onPressed: () => _rescheduleReminder(
-                                doc.id, data['time']),
+                          PopupMenuButton<String>(
+                            icon: Icon(Icons.more_vert, color: colorScheme.primary),
+                            onSelected: (value) {
+                              if (value == 'edit') {
+                                _showEditDialog(data, doc.id);
+                              } else if (value == 'time') {
+                                _rescheduleReminder(doc.id, data['time']);
+                              } else if (value == 'delete') {
+                                _deleteReminder(doc.id);
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              PopupMenuItem(
+                                value: 'edit',
+                                child: Text('Edit Details'),
+                              ),
+                              PopupMenuItem(
+                                value: 'time',
+                                child: Text('Change Time'),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Delete', style: TextStyle(color: Colors.red)),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       Text(
                         'Time: ${_formatTime(data['time'])}',
-                        style: const TextStyle(fontSize: 16),
+                        style: theme.textTheme.bodyLarge,
                       ),
                       const SizedBox(height: 4),
                       Text(
                         'Dosage: ${data['dosage'] ?? 'Not specified'}',
-                        style: const TextStyle(fontSize: 16),
+                        style: theme.textTheme.bodyLarge,
                       ),
                       if (data['notes']?.isNotEmpty == true) ...[
                         const SizedBox(height: 4),
                         Text(
                           'Notes: ${data['notes']}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurface.withOpacity(0.6),
                           ),
                         ),
                       ],

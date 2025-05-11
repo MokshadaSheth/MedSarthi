@@ -1,4 +1,3 @@
-// signup_page.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:med_sarathi/features/user_auth/firebase_auth_implementation/firebase_auth_services.dart';
@@ -26,9 +25,35 @@ class _SignupPageState extends State<SignupPage> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
+  final _emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+
   void _registerUser() async {
-    final password = _passwordController.text;
-    final confirmPassword = _confirmPasswordController.text;
+    String username = _usernameController.text.trim();
+    String email = _emailController.text.trim();
+    String phone = _phoneController.text.trim();
+    String password = _passwordController.text;
+    String confirmPassword = _confirmPasswordController.text;
+
+    if (username.isEmpty || email.isEmpty || phone.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+      setState(() {
+        _errorMessage = "All fields are required!";
+      });
+      return;
+    }
+
+    if (!_emailRegex.hasMatch(email)) {
+      setState(() {
+        _errorMessage = "Invalid email format.";
+      });
+      return;
+    }
+
+    if (password.length < 6) {
+      setState(() {
+        _errorMessage = "Password must be at least 6 characters long.";
+      });
+      return;
+    }
 
     if (password != confirmPassword) {
       setState(() {
@@ -40,10 +65,6 @@ class _SignupPageState extends State<SignupPage> {
     setState(() {
       _errorMessage = null;
     });
-
-    String username = _usernameController.text.trim();
-    String email = _emailController.text.trim();
-    String phone = _phoneController.text.trim();
 
     try {
       User? user = await _auth.signUpWithEmailAndPassword(email, password);
@@ -208,7 +229,15 @@ class _SignupPageState extends State<SignupPage> {
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _registerUser,
-                child: const Text('Register', style: TextStyle(fontSize: 18, color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0D47A1),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+                child: const Text('Register', style: TextStyle(fontSize: 18)),
               ),
               const SizedBox(height: 16),
               const Text('Or Signup using', style: TextStyle(color: Colors.black54)),
@@ -221,6 +250,9 @@ class _SignupPageState extends State<SignupPage> {
                   backgroundColor: Colors.lightBlue,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
                 ),
               ),
               const SizedBox(height: 24),

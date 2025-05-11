@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:med_sarathi/constants/colors.dart';
 
 class ReminderCard extends StatelessWidget {
   final String title;
@@ -16,30 +15,41 @@ class ReminderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 3,
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title,
-                style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primaryColor)),
-            const SizedBox(height: 10),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 8),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Time: $time'),
-                Text('Dosage: $dosage'),
+                _buildInfoItem(context, Icons.access_time, time),
+                const SizedBox(width: 16),
+                _buildInfoItem(context, Icons.medication, dosage),
               ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildInfoItem(BuildContext context, IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).colorScheme.secondary),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+      ],
     );
   }
 }
