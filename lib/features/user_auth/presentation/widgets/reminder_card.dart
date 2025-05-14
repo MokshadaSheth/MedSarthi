@@ -5,11 +5,16 @@ class ReminderCard extends StatelessWidget {
   final String time;
   final String dosage;
 
+  final VoidCallback? onTaken;
+  final void Function(String newTime)? onReschedule;
+
   const ReminderCard({
     super.key,
     required this.title,
     required this.time,
     required this.dosage,
+    this.onTaken,
+    this.onReschedule,
   });
 
   @override
@@ -32,6 +37,27 @@ class ReminderCard extends StatelessWidget {
                 _buildInfoItem(context, Icons.access_time, time),
                 const SizedBox(width: 16),
                 _buildInfoItem(context, Icons.medication, dosage),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                ElevatedButton.icon(
+                  onPressed: onTaken,
+                  icon: const Icon(Icons.check),
+                  label: const Text('Taken'),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // Dummy newTime input for simplicity. Replace with your own time picker if needed.
+                    final now = TimeOfDay.now();
+                    final newTime = '${now.hour}:${now.minute.toString().padLeft(2, '0')}';
+                    onReschedule?.call(newTime);
+                  },
+                  icon: const Icon(Icons.schedule),
+                  label: const Text('Reschedule'),
+                ),
               ],
             ),
           ],

@@ -1,8 +1,10 @@
 // login_page.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:med_sarathi/features/user_auth/firebase_auth_implementation/firebase_auth_services.dart';
 import 'package:med_sarathi/features/user_auth/presentation/pages/home_page.dart';
+import 'package:med_sarathi/features/user_auth/presentation/widgets/complete_profile_page.dart'; // Add this import
 import 'signup_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -14,12 +16,43 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final FirebaseAuthService _authService = FirebaseAuthService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
   bool _isLoading = false;
   String? _errorMessage;
+
+  Future<void> _checkProfileCompletion(User user) async {
+    try {
+      final doc = await _firestore.collection('Users').doc(user.uid).get();
+
+      if (!doc.exists || doc.data()?['profileCompleted'] != true) {
+        // Redirect to complete profile page
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const CompleteProfilePage()),
+          );
+        }
+      } else {
+        // Profile is complete, go to home page
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomePage()),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error checking profile: ${e.toString()}')),
+        );
+      }
+    }
+  }
 
   void _loginUser() async {
     String email = _emailController.text.trim();
@@ -33,10 +66,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       User? user = await _authService.signInWithEmailAndPassword(email, password);
       if (user != null) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomePage()),
-        );
+        await _checkProfileCompletion(user);
       }
     } on FirebaseAuthException catch (e) {
       setState(() {
@@ -47,9 +77,11 @@ class _LoginPageState extends State<LoginPage> {
         _errorMessage = "Unexpected error: ${e.toString()}";
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -62,19 +94,31 @@ class _LoginPageState extends State<LoginPage> {
     try {
       User? user = await _authService.signInWithGoogle();
       if (user != null) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomePage()),
-        );
+        // Check if this is a new user (first time login)
+        final userDoc = await _firestore.collection('Users').doc(user.uid).get();
+
+        if (!userDoc.exists) {
+          // New user - create basic document
+          await _firestore.collection('Users').doc(user.uid).set({
+            'email': user.email,
+            'username': user.displayName ?? '',
+            'profileCompleted': false,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        }
+
+        await _checkProfileCompletion(user);
       }
     } catch (e) {
       setState(() {
         _errorMessage = "Google Sign-In failed: ${e.toString()}";
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

@@ -1,9 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:provider/provider.dart';
-import 'package:med_sarathi/themes/theme_provider.dart';
 import 'package:med_sarathi/features/user_auth/presentation/pages/add_reminder_page.dart';
 import 'package:med_sarathi/features/user_auth/presentation/pages/reschedule.dart';
 import 'package:med_sarathi/features/user_auth/presentation/pages/profile_page.dart';
@@ -13,7 +11,8 @@ import 'package:med_sarathi/features/user_auth/presentation/widgets/action_butto
 import 'package:med_sarathi/features/user_auth/presentation/widgets/remainder_list.dart';
 import 'package:med_sarathi/features/user_auth/presentation/widgets/floating_buttons.dart';
 import 'package:med_sarathi/features/user_auth/presentation/widgets/home_drawer.dart';
-import 'package:intl/intl.dart';
+import 'package:med_sarathi/features/user_auth/presentation/widgets/medication_repository.dart';
+import 'package:med_sarathi/features/user_auth/presentation/widgets/notification_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -23,17 +22,26 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  late AnimationController _animationController;
-  late Animation<Offset> _slideAnimation;
-  User? _currentUser;
+  late final AnimationController _animationController;
+  late final Animation<Offset> _slideAnimation;
+  late final MedicationRepository _medicationRepository;
+  late final NotificationService _notificationService;
+
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
+  int _completedMeds = 0;
+  int _totalMeds = 0;
 
   @override
   void initState() {
     super.initState();
+    _medicationRepository = MedicationRepository();
+    _notificationService = NotificationService();
+    _initializeAnimations();
+    _initializeApp();
+  }
+
+  void _initializeAnimations() {
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
@@ -46,65 +54,209 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       curve: Curves.easeOut,
     ));
     _animationController.forward();
-    _loadUserData();
   }
 
-  Future<void> _loadUserData() async {
-    setState(() => _isLoading = true);
+  Future<void> _initializeApp() async {
     try {
-      _currentUser = _auth.currentUser;
-      if (_currentUser != null) {
-        DocumentSnapshot userDoc = await _firestore
-            .collection('Users')
-            .doc(_currentUser!.uid)
-            .get();
-        if (userDoc.exists) {
-          setState(() => _userData = userDoc.data() as Map<String, dynamic>);
-        }
-      }
+      await _notificationService.initialize();
+      await _loadUserData();
+      await _loadMedicationCounts();
     } catch (e) {
-      debugPrint('Error loading user data: $e');
+      debugPrint('Initialization error: $e');
+      // Handle error appropriately
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
+  Future<void> _loadUserData() async {
+    _userData = await _medicationRepository.getUserData();
   }
 
-  void _showSOSDialog() {
+  Future<void> _loadMedicationCounts() async {
+    try {
+      final remindersSnapshot = await _medicationRepository.getReminders();
+
+      setState(() {
+        _totalMeds = remindersSnapshot.docs.length;
+        _completedMeds = remindersSnapshot.docs
+            .where((doc) =>
+        (doc.data() as Map<String, dynamic>)['status']?.toString().toLowerCase() == 'taken')
+            .length;
+      });
+    } catch (e) {
+      debugPrint('Error loading medication counts: $e');
+      setState(() {
+        _totalMeds = 0;
+        _completedMeds = 0;
+      });
+    }
+  }
+
+
+  Future<void> _showMedicationDialog(String reminderId) async {
+    final reminderDoc = await _medicationRepository.getReminders();
+    final doc = reminderDoc.docs.firstWhere(
+          (doc) => doc.id == reminderId,
+      orElse: () => throw Exception('Reminder not found'),
+    );
+
+    final data = doc.data() as Map<String, dynamic>;
+    final theme = Theme.of(context);
+
+    if (!mounted) return;
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Emergency SOS"),
-        content: const Text("Are you sure you want to trigger SOS?"),
+      builder: (context) => AlertDialog(
+        title: Text('Time for ${data['medication']}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Dosage: ${data['dosage']}'),
+            const SizedBox(height: 10),
+            Text('Scheduled Time: ${data['time']}'),
+          ],
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
             onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("SOS Triggered! Help is on the way!")),
-              );
+              Navigator.pop(context);
+              _markAsTaken(reminderId);
             },
-            child: const Text("Confirm"),
+            child: Text('Mark Taken', style: TextStyle(color: theme.colorScheme.primary)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _rescheduleReminder(reminderId, data['time']);
+            },
+            child: Text('Reschedule', style: TextStyle(color: theme.colorScheme.secondary)),
           ),
         ],
       ),
     );
   }
 
-  void _rescheduleReminder() {
+  Future<void> _markAsTaken(String reminderId) async {
+    try {
+      await _medicationRepository.markAsTaken(reminderId);
+      if (mounted) {
+        setState(() => _completedMeds++);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Medication marked as taken'),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _rescheduleReminder(String reminderId, String oldTime) async {
+    final timeParts = oldTime.split(':');
+    final initialTime = TimeOfDay(
+      hour: int.parse(timeParts[0]),
+      minute: int.parse(timeParts[1]),
+    );
+
+    if (!mounted) return;
+
+    final newTime = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+
+    if (newTime != null) {
+      final newTimeStr = '${newTime.hour}:${newTime.minute}';
+
+      try {
+        await _medicationRepository.rescheduleReminder(
+          reminderId,
+          newTime: newTimeStr,
+        );
+
+        await _notificationService.cancelNotification(reminderId.hashCode);
+        await _notificationService.scheduleMedicationNotification(
+          reminderId: reminderId,
+          time: newTimeStr,
+          medicationName: 'your medication', // You might want to pass the actual name
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Rescheduled to $newTimeStr'),
+              backgroundColor: Theme.of(context).colorScheme.primary,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: ${e.toString()}'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _showSOSDialog() {
+    final theme = Theme.of(context);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("Emergency SOS", style: theme.textTheme.headlineSmall),
+        content: Text("Are you sure you want to trigger SOS?",
+            style: theme.textTheme.bodyLarge),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text("Cancel", style: TextStyle(color: theme.colorScheme.error)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: theme.colorScheme.primary,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _notificationService.triggerSOSNotification();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text("SOS Triggered! Help is on the way!"),
+                    backgroundColor: theme.colorScheme.primary,
+                  ),
+                );
+              }
+            },
+            child: Text("Confirm", style: TextStyle(color: theme.colorScheme.onPrimary)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToReschedule() {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const ReschedulePage()));
   }
 
-  void _newScheduleReminder() {
+  void _navigateToAddReminder() {
     Navigator.push(context, MaterialPageRoute(builder: (_) => AddReminderPage()));
   }
 
@@ -118,107 +270,155 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   Future<void> _logout() async {
-    await _auth.signOut();
-    Navigator.pushNamedAndRemoveUntil(
-      context,
-      '/login',
-          (route) => false,
-    );
+    try {
+      await FirebaseAuth.instance.signOut();
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          '/login',
+              (route) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout failed: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    final theme = Theme.of(context);
     final currentDate = DateFormat('MMMM dd, yyyy').format(DateTime.now());
     final dayName = DateFormat('EEEE').format(DateTime.now());
 
     return Scaffold(
+      backgroundColor: theme.colorScheme.background,
       drawer: HomeDrawer(
         userData: _userData,
-        onProfilePressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ProfilePage(userData: _userData),
-            ),
-          );
-        },
-        onLogoutPressed: () async {
-          await _auth.signOut();
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            '/login',
-                (route) => false,
-          );
-        },
-      ), // Add this line
+        onProfilePressed: _navigateToProfile,
+        onLogoutPressed: _logout,
+      ),
       appBar: AppBar(
+        backgroundColor: theme.colorScheme.primary,
+        title: Text('MedSarthi', style: theme.textTheme.headlineSmall?.copyWith(
+          color: theme.colorScheme.onPrimary,
+        )),
         leading: Builder(
           builder: (context) => IconButton(
-            icon: const Icon(Icons.menu),
+            icon: Icon(Icons.menu, color: theme.colorScheme.onPrimary),
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
         actions: [
+          IconButton(
+            icon: Icon(Icons.notifications, color: theme.colorScheme.onPrimary),
+            onPressed: () {
+              // Navigate to notifications page
+            },
+          ),
           GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => ProfilePage(userData: _userData)),
-            ),
+            onTap: _navigateToProfile,
             child: Padding(
               padding: const EdgeInsets.only(right: 16),
               child: CircleAvatar(
-                backgroundColor: Colors.blue,
+                backgroundColor: theme.colorScheme.secondary,
                 child: Text(
                   _userData?['username']?.toString().isNotEmpty == true
                       ? _userData!['username'][0].toUpperCase()
                       : 'U',
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: theme.colorScheme.onSecondary),
                 ),
               ),
             ),
           ),
         ],
-
       ),
-
-    backgroundColor: Theme.of(context).colorScheme.surface,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              HomeHeader(
-                username: _userData?['username'] ?? 'User',
-                currentDate: currentDate,
-              ),
-              const SizedBox(height: 20),
-              ProgressCircle(
-                dayName: dayName,
-                completed: 0,
-                total: 2,
-              ),
-              const SizedBox(height: 20),
-              ActionButtons(
-                onNewSchedule: _newScheduleReminder,
-                onReschedule: _rescheduleReminder,
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Upcoming Reminders',
-                style: Theme.of(context).textTheme.displayMedium,
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: ReminderList(userId: _currentUser?.uid),
-              ),
-            ],
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                HomeHeader(
+                  username: _userData?['username'] ?? 'User',
+                  currentDate: currentDate,
+                ),
+                const SizedBox(height: 20),
+                ProgressCircle(
+                  dayName: dayName,
+                  completed: _completedMeds,
+                  total: _totalMeds,
+                ),
+                const SizedBox(height: 20),
+                ActionButtons(
+                  onNewSchedule: _navigateToAddReminder,
+                  onReschedule: _navigateToReschedule,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Upcoming Reminders',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                // Text
+                const SizedBox(height: 10),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>
+                    (
+                    stream: _medicationRepository.getRemindersStream(),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return Center(child: Text('Error: ${snapshot.error}'));
+                      }
+
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                        return const Center(child: Text('No reminders found'));
+                      }
+
+                      return ReminderList(
+                        reminders: snapshot.data!.docs,
+                        onMedicationTaken: _markAsTaken,
+                        onReschedule: _rescheduleReminder,
+                      );
+
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
       floatingActionButton: FloatingButtons(
         onSOSPressed: _showSOSDialog,
-        onAddReminderPressed: _newScheduleReminder,
+        onAddReminderPressed: _navigateToAddReminder,
       ),
     );
   }
