@@ -25,7 +25,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   late final AnimationController _animationController;
   late final Animation<Offset> _slideAnimation;
   late final MedicationRepository _medicationRepository;
-  late final NotificationService _notificationService;
+  // late final NotificationService _notificationService;
 
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
@@ -36,7 +36,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   void initState() {
     super.initState();
     _medicationRepository = MedicationRepository();
-    _notificationService = NotificationService();
+    // _notificationService = NotificationService();
     _initializeAnimations();
     _initializeApp();
   }
@@ -58,7 +58,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   Future<void> _initializeApp() async {
     try {
-      await _notificationService.initialize();
+      // await _notificationService.initialize();
       await _loadUserData();
       await _loadMedicationCounts();
     } catch (e) {
@@ -187,12 +187,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           newTime: newTimeStr,
         );
 
-        await _notificationService.cancelNotification(reminderId.hashCode);
-        await _notificationService.scheduleMedicationNotification(
-          reminderId: reminderId,
-          time: newTimeStr,
-          medicationName: 'your medication', // You might want to pass the actual name
-        );
+        // await _notificationService.cancelNotification(reminderId.hashCode);
+        // await _notificationService.scheduleMedicationNotification(
+        //   reminderId: reminderId,
+        //   time: newTimeStr,
+        //   medicationName: 'your medication', // You might want to pass the actual name
+        // );
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -235,7 +235,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             ),
             onPressed: () async {
               Navigator.pop(ctx);
-              await _notificationService.triggerSOSNotification();
+              // await _notificationService.triggerSOSNotification();
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(

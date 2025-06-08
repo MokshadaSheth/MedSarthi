@@ -63,13 +63,19 @@ class MedicationRepository {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> getRemindersStream() {
-    return FirebaseFirestore.instance
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw Exception('User not logged in');
+    }
+
+    return _firestore
+        .collection('Users')
+        .doc(user.uid)
         .collection('reminders')
         .withConverter<Map<String, dynamic>>(
       fromFirestore: (snapshot, _) => snapshot.data()!,
       toFirestore: (data, _) => data,
-    )
-        .snapshots();
+    ).snapshots();
   }
 
 }

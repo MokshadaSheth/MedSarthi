@@ -14,10 +14,11 @@ final ThemeData darkTheme = ThemeData(
     bodyLarge: TextStyle(fontSize: 20, color: Color(0xFFCCCCCC)),
     bodyMedium: TextStyle(fontSize: 18, color: Color(0xFFCCCCCC)),
   ),
-  cardTheme: CardTheme(
+  cardTheme: const CardThemeData(
     elevation: 2,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    margin: const EdgeInsets.symmetric(vertical: 8),
-    color: const Color(0xFF222222),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+    margin: EdgeInsets.symmetric(vertical: 8),
+    color: Color(0xFF222222),
   ),
+
 );

@@ -24,7 +24,7 @@ final ThemeData lightTheme = ThemeData(
     bodyLarge: TextStyle(fontSize: 20, color: Color(0xFF555555)),
     bodyMedium: TextStyle(fontSize: 18, color: Color(0xFF555555)),
   ),
-  cardTheme: CardTheme(
+  cardTheme: CardThemeData(
     elevation: 1,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),

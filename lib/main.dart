@@ -12,6 +12,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
 
+  // await NotificationUtils.initNotifications();
+  // await FCMService.initFCM();
+
   runApp(
     ChangeNotifierProvider(
       create: (context) => ThemeProvider(),
