@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-
 class ReschedulePage extends StatefulWidget {
   const ReschedulePage({super.key});
 
@@ -28,7 +27,6 @@ class _ReschedulePageState extends State<ReschedulePage> {
 
   @override
   void dispose() {
-    // Dispose all edit controllers
     _editControllers.forEach((_, controller) => controller.dispose());
     super.dispose();
   }
@@ -67,25 +65,33 @@ class _ReschedulePageState extends State<ReschedulePage> {
     }
   }
 
-  String _formatTime(String timeString) {
+  // ✅ Safe time parsing helper
+  TimeOfDay? _parseTimeString(String? timeString) {
+    if (timeString == null || !timeString.contains(":")) return null;
+
     try {
-      final time = TimeOfDay(
-        hour: int.parse(timeString.split(':')[0]),
-        minute: int.parse(timeString.split(':')[1]),
-      );
-      final now = DateTime.now();
-      final dt = DateTime(now.year, now.month, now.day, time.hour, time.minute);
-      return DateFormat.jm().format(dt);
+      final parts = timeString.split(":");
+      final hour = int.parse(parts[0]);
+      final minute = int.parse(parts[1]);
+      return TimeOfDay(hour: hour, minute: minute);
     } catch (e) {
-      return timeString;
+      return null;
     }
+  }
+
+  String _formatTime(String timeString) {
+    final time = _parseTimeString(timeString);
+    if (time == null) return timeString;
+
+    final now = DateTime.now();
+    final dt = DateTime(now.year, now.month, now.day, time.hour, time.minute);
+    return DateFormat.jm().format(dt);
   }
 
   Future<void> _showEditDialog(Map<String, dynamic> data, String docId) async {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    // Initialize controllers if not already done
     if (!_editControllers.containsKey(docId)) {
       _editControllers[docId] = TextEditingController(text: data['medication']);
     }
@@ -96,16 +102,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
       _editControllers['${docId}_notes'] = TextEditingController(text: data['notes'] ?? '');
     }
 
-    TimeOfDay? selectedTime;
-    try {
-      final timeParts = data['time'].split(':');
-      selectedTime = TimeOfDay(
-        hour: int.parse(timeParts[0]),
-        minute: int.parse(timeParts[1]),
-      );
-    } catch (e) {
-      selectedTime = TimeOfDay.now();
-    }
+    TimeOfDay selectedTime = _parseTimeString(data['time']) ?? TimeOfDay.now();
 
     await showDialog(
       context: context,
@@ -122,9 +119,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
                       controller: _editControllers[docId],
                       decoration: InputDecoration(
                         labelText: 'Medication',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -132,9 +127,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
                       controller: _editControllers['${docId}_dosage'],
                       decoration: InputDecoration(
                         labelText: 'Dosage',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -142,7 +135,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
                       onTap: () async {
                         final time = await showTimePicker(
                           context: context,
-                          initialTime: selectedTime ?? TimeOfDay.now(),
+                          initialTime: selectedTime,
                         );
                         if (time != null) {
                           setState(() => selectedTime = time);
@@ -151,16 +144,14 @@ class _ReschedulePageState extends State<ReschedulePage> {
                       child: InputDecorator(
                         decoration: InputDecoration(
                           labelText: 'Time',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         child: Row(
                           children: [
                             Icon(Icons.access_time, color: colorScheme.primary),
                             const SizedBox(width: 8),
                             Text(
-                              selectedTime?.format(context) ?? 'Select time',
+                              selectedTime.format(context),
                               style: theme.textTheme.bodyLarge,
                             ),
                           ],
@@ -172,9 +163,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
                       controller: _editControllers['${docId}_notes'],
                       decoration: InputDecoration(
                         labelText: 'Notes (optional)',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                       maxLines: 3,
                     ),
@@ -196,7 +185,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
                       docId,
                       _editControllers[docId]!.text,
                       _editControllers['${docId}_dosage']!.text,
-                      selectedTime!,
+                      selectedTime,
                       _editControllers['${docId}_notes']!.text,
                     );
                     if (mounted) Navigator.pop(context);
@@ -211,26 +200,15 @@ class _ReschedulePageState extends State<ReschedulePage> {
     );
   }
 
-  Future<void> _updateReminder(
-      String docId,
-      String medication,
-      String dosage,
-      TimeOfDay time,
-      String notes,
-      ) async {
+  Future<void> _updateReminder(String docId, String medication, String dosage, TimeOfDay time, String notes) async {
     final user = _auth.currentUser;
     if (user == null) return;
 
     try {
-      await _firestore
-          .collection('Users')
-          .doc(user.uid)
-          .collection('reminders')
-          .doc(docId)
-          .update({
+      await _firestore.collection('Users').doc(user.uid).collection('reminders').doc(docId).update({
         'medication': medication,
         'dosage': dosage,
-        'time': '${time.hour}:${time.minute}',
+        'time': '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
         'notes': notes,
         'timestamp': FieldValue.serverTimestamp(),
       });
@@ -239,7 +217,6 @@ class _ReschedulePageState extends State<ReschedulePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Reminder updated successfully'),
-          behavior: SnackBarBehavior.floating,
           backgroundColor: Theme.of(context).colorScheme.primary,
         ),
       );
@@ -255,10 +232,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
   }
 
   Future<void> _rescheduleReminder(String docId, String currentTime) async {
-    final currentTimeOfDay = TimeOfDay(
-      hour: int.parse(currentTime.split(':')[0]),
-      minute: int.parse(currentTime.split(':')[1]),
-    );
+    final currentTimeOfDay = _parseTimeString(currentTime) ?? TimeOfDay.now();
 
     final newTime = await showTimePicker(
       context: context,
@@ -269,15 +243,10 @@ class _ReschedulePageState extends State<ReschedulePage> {
       final user = _auth.currentUser;
       if (user == null) return;
 
-      final newTimeString = '${newTime.hour}:${newTime.minute}';
+      final newTimeString = '${newTime.hour.toString().padLeft(2, '0')}:${newTime.minute.toString().padLeft(2, '0')}';
 
       try {
-        await _firestore
-            .collection('Users')
-            .doc(user.uid)
-            .collection('reminders')
-            .doc(docId)
-            .update({
+        await _firestore.collection('Users').doc(user.uid).collection('reminders').doc(docId).update({
           'time': newTimeString,
           'timestamp': FieldValue.serverTimestamp(),
         });
@@ -286,7 +255,6 @@ class _ReschedulePageState extends State<ReschedulePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Reminder rescheduled to ${_formatTime(newTimeString)}'),
-            behavior: SnackBarBehavior.floating,
             backgroundColor: Theme.of(context).colorScheme.primary,
           ),
         );
@@ -302,7 +270,8 @@ class _ReschedulePageState extends State<ReschedulePage> {
     }
   }
 
-  Future<void> _deleteReminder(String docId) async {
+
+Future<void> _deleteReminder(String docId) async {
     final user = _auth.currentUser;
     if (user == null) return;
 
@@ -388,7 +357,10 @@ class _ReschedulePageState extends State<ReschedulePage> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final reminders = snapshot.data?.docs ?? [];
+          final reminders = snapshot.data?.docs.where((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return data['status'] != 'taken';
+          }).toList() ?? [];
           if (reminders.isEmpty) {
             return Center(
               child: Text(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:med_sarathi/features/user_auth/presentation/pages/noti_service.dart'; // <--- add this import
 
 class AddReminderPage extends StatefulWidget {
   const AddReminderPage({super.key});
@@ -25,28 +26,13 @@ class _AddReminderPageState extends State<AddReminderPage> {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
-      builder: (BuildContext context, Widget? child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: Theme.of(context).colorScheme.primary,
-              onPrimary: Theme.of(context).colorScheme.onPrimary,
-              surface: Theme.of(context).colorScheme.surface,
-              onSurface: Theme.of(context).colorScheme.onSurface,
-            ),
-            timePickerTheme: TimePickerThemeData(
-              backgroundColor: Theme.of(context).colorScheme.background,
-            ),
-          ),
-          child: child!,
-        );
-      },
     );
 
     if (picked != null && picked != _selectedTime) {
       setState(() {
         _selectedTime = picked;
-        _timeController.text = picked.format(context);
+        _timeController.text =
+        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
       });
     }
   }
@@ -66,7 +52,7 @@ class _AddReminderPageState extends State<AddReminderPage> {
     });
 
     try {
-      await _firestore
+      final docRef = await _firestore
           .collection('Users')
           .doc(user.uid)
           .collection('reminders')
@@ -77,7 +63,22 @@ class _AddReminderPageState extends State<AddReminderPage> {
         'notes': _notesController.text.trim(),
         'timestamp': FieldValue.serverTimestamp(),
         'isActive': true,
+        'status': 'pending', // 👈 Important fix added
       });
+
+      // ⏰ Schedule local notification immediately
+      final timeParts = _timeController.text.split(':');
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+
+      await NotificationService().scheduleNotification(
+        id: docRef.id.hashCode, // unique ID based on firestore doc ID
+        title: 'Medication Reminder',
+        body:
+        "It's time to take your medicine: ${_medicationController.text.trim()}",
+        hour: hour,
+        minute: minute,
+      );
 
       if (mounted) {
         Navigator.pop(context);
@@ -130,122 +131,44 @@ class _AddReminderPageState extends State<AddReminderPage> {
               // Medication Name
               TextFormField(
                 controller: _medicationController,
-                style: TextStyle(color: colorScheme.onSurface),
-                decoration: InputDecoration(
-                  labelText: 'Medication Name*',
-                  labelStyle: TextStyle(color: colorScheme.onSurface.withOpacity(0.6)),
-                  prefixIcon: Icon(Icons.medical_services, color: colorScheme.primary),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.outline),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.outline),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.primary, width: 2),
-                  ),
-                  filled: true,
-                  fillColor: colorScheme.surface,
-                ),
-                validator: (value) => value?.isEmpty ?? true ? 'Required field' : null,
+                decoration: InputDecoration(labelText: 'Medication Name*'),
+                validator: (value) =>
+                value?.isEmpty ?? true ? 'Required field' : null,
               ),
               const SizedBox(height: 20),
 
               // Dosage
               TextFormField(
                 controller: _dosageController,
-                style: TextStyle(color: colorScheme.onSurface),
-                decoration: InputDecoration(
-                  labelText: 'Dosage*',
-                  labelStyle: TextStyle(color: colorScheme.onSurface.withOpacity(0.6)),
-                  prefixIcon: Icon(Icons.medication, color: colorScheme.primary),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.outline),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.outline),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.primary, width: 2),
-                  ),
-                  filled: true,
-                  fillColor: colorScheme.surface,
-                ),
-                validator: (value) => value?.isEmpty ?? true ? 'Required field' : null,
+                decoration: InputDecoration(labelText: 'Dosage*'),
+                validator: (value) =>
+                value?.isEmpty ?? true ? 'Required field' : null,
               ),
               const SizedBox(height: 20),
 
               // Time Picker
               TextFormField(
                 controller: _timeController,
-                style: TextStyle(color: colorScheme.onSurface),
                 readOnly: true,
                 onTap: () => _pickTime(context),
-                decoration: InputDecoration(
-                  labelText: 'Time*',
-                  labelStyle: TextStyle(color: colorScheme.onSurface.withOpacity(0.6)),
-                  prefixIcon: Icon(Icons.access_time, color: colorScheme.primary),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.outline),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.outline),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.primary, width: 2),
-                  ),
-                  filled: true,
-                  fillColor: colorScheme.surface,
-                ),
-                validator: (value) => value?.isEmpty ?? true ? 'Required field' : null,
+                decoration: InputDecoration(labelText: 'Time*'),
+                validator: (value) =>
+                value?.isEmpty ?? true ? 'Required field' : null,
               ),
               const SizedBox(height: 20),
 
               // Notes
               TextFormField(
                 controller: _notesController,
-                style: TextStyle(color: colorScheme.onSurface),
-                decoration: InputDecoration(
-                  labelText: 'Notes (optional)',
-                  labelStyle: TextStyle(color: colorScheme.onSurface.withOpacity(0.6)),
-                  prefixIcon: Icon(Icons.note, color: colorScheme.primary),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.outline),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.outline),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.primary, width: 2),
-                  ),
-                  filled: true,
-                  fillColor: colorScheme.surface,
-                ),
+                decoration: InputDecoration(labelText: 'Notes (optional)'),
                 maxLines: 3,
               ),
               const SizedBox(height: 30),
 
-              // Error message
               if (_errorMessage != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Text(
-                    _errorMessage!,
-                    style: TextStyle(color: colorScheme.error, fontSize: 14),
-                    textAlign: TextAlign.center,
-                  ),
+                Text(
+                  _errorMessage!,
+                  style: TextStyle(color: Colors.red),
                 ),
 
               _isLoading
@@ -254,7 +177,6 @@ class _AddReminderPageState extends State<AddReminderPage> {
                 onPressed: _saveReminder,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: colorScheme.primary,
-                  foregroundColor: colorScheme.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -262,8 +184,10 @@ class _AddReminderPageState extends State<AddReminderPage> {
                 ),
                 child: Text(
                   'Save Reminder',
-                  style: theme.textTheme.bodyLarge?.copyWith(
+                  style: TextStyle(
+                    color: Colors.white, // 👈 white text color here
                     fontWeight: FontWeight.bold,
+                    fontSize: 16,
                   ),
                 ),
               ),

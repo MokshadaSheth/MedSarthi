@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
+
 import 'package:med_sarathi/features/user_auth/presentation/pages/add_reminder_page.dart';
 import 'package:med_sarathi/features/user_auth/presentation/pages/reschedule.dart';
 import 'package:med_sarathi/features/user_auth/presentation/pages/profile_page.dart';
@@ -12,8 +14,9 @@ import 'package:med_sarathi/features/user_auth/presentation/widgets/remainder_li
 import 'package:med_sarathi/features/user_auth/presentation/widgets/floating_buttons.dart';
 import 'package:med_sarathi/features/user_auth/presentation/widgets/home_drawer.dart';
 import 'package:med_sarathi/features/user_auth/presentation/widgets/medication_repository.dart';
-import 'package:med_sarathi/features/user_auth/presentation/widgets/notification_service.dart';
-
+import 'package:med_sarathi/features/user_auth/presentation/pages/noti_service.dart';
+import 'package:med_sarathi/features/user_auth/presentation/widgets/RemainingMedCard.dart';
+import 'package:med_sarathi/features/user_auth/presentation/widgets/HealthTipCard.dart';
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -21,11 +24,15 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _animationController;
   late final Animation<Offset> _slideAnimation;
   late final MedicationRepository _medicationRepository;
-  // late final NotificationService _notificationService;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _reminderStream;
+
+  late final StreamSubscription<
+      QuerySnapshot<Map<String, dynamic>>> _reminderSubscription;
+
 
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
@@ -36,9 +43,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   void initState() {
     super.initState();
     _medicationRepository = MedicationRepository();
-    // _notificationService = NotificationService();
     _initializeAnimations();
     _initializeApp();
+    _startReminderListener();
+    _reminderStream = _medicationRepository.getActiveRemindersStream();
+    WidgetsBinding.instance.addObserver(this);
+    _subscribeToReminders();
   }
 
   void _initializeAnimations() {
@@ -58,17 +68,47 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   Future<void> _initializeApp() async {
     try {
-      // await _notificationService.initialize();
       await _loadUserData();
       await _loadMedicationCounts();
+      await _scheduleAllReminders();
     } catch (e) {
       debugPrint('Initialization error: $e');
-      // Handle error appropriately
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+
+  void _startReminderListener() {
+    final userId = FirebaseAuth.instance.currentUser!.uid;
+
+    _reminderSubscription = FirebaseFirestore.instance
+        .collection('Users')
+        .doc(userId)
+        .collection('reminders')
+        .snapshots()
+        .listen((snapshot) {
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final timeString = data['time'] as String;
+
+        // Parse 'HH:mm' string to hour & minute
+        final timeParts = timeString.split(':');
+        final hour = int.tryParse(timeParts[0]) ?? 0;
+        final minute = int.tryParse(timeParts[1]) ?? 0;
+
+        NotificationService().scheduleNotification(
+          id: doc.id.hashCode,
+          // unique per document
+          title: 'Medication Reminder',
+          body: 'Time to take your ${data['medication']}',
+          hour: hour,
+          minute: minute,
+        );
+      }
+    });
   }
 
   Future<void> _loadUserData() async {
@@ -79,64 +119,66 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     try {
       final remindersSnapshot = await _medicationRepository.getReminders();
 
-      setState(() {
-        _totalMeds = remindersSnapshot.docs.length;
-        _completedMeds = remindersSnapshot.docs
-            .where((doc) =>
-        (doc.data() as Map<String, dynamic>)['status']?.toString().toLowerCase() == 'taken')
-            .length;
-      });
+      if (mounted) {
+        final allReminders = remindersSnapshot.docs;
+
+        setState(() {
+          _totalMeds = allReminders.where((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return (data['status']?.toString().toLowerCase() ?? '') != 'taken';
+          }).length;
+
+          _completedMeds = allReminders.where((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return (data['status']?.toString().toLowerCase() ?? '') == 'taken';
+          }).length;
+        });
+      }
     } catch (e) {
       debugPrint('Error loading medication counts: $e');
-      setState(() {
-        _totalMeds = 0;
-        _completedMeds = 0;
-      });
     }
   }
 
 
-  Future<void> _showMedicationDialog(String reminderId) async {
-    final reminderDoc = await _medicationRepository.getReminders();
-    final doc = reminderDoc.docs.firstWhere(
-          (doc) => doc.id == reminderId,
-      orElse: () => throw Exception('Reminder not found'),
-    );
-
-    final data = doc.data() as Map<String, dynamic>;
+  Future<void> _showMedicationDialog(
+      DocumentSnapshot<Map<String, dynamic>> doc) async {
+    final data = doc.data()!;
     final theme = Theme.of(context);
 
     if (!mounted) return;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Time for ${data['medication']}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Dosage: ${data['dosage']}'),
-            const SizedBox(height: 10),
-            Text('Scheduled Time: ${data['time']}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _markAsTaken(reminderId);
-            },
-            child: Text('Mark Taken', style: TextStyle(color: theme.colorScheme.primary)),
+      builder: (context) =>
+          AlertDialog(
+            title: Text('Time for ${data['medication']}'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Dosage: ${data['dosage']}'),
+                const SizedBox(height: 10),
+                Text('Scheduled Time: ${data['time']}'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _markAsTaken(doc.id);
+                },
+                child: Text('Mark Taken',
+                    style: TextStyle(color: theme.colorScheme.primary)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _rescheduleReminder(doc.id, data['time'], data['medication']);
+                },
+                child: Text('Reschedule',
+                    style: TextStyle(color: theme.colorScheme.secondary)),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _rescheduleReminder(reminderId, data['time']);
-            },
-            child: Text('Reschedule', style: TextStyle(color: theme.colorScheme.secondary)),
-          ),
-        ],
-      ),
     );
   }
 
@@ -148,7 +190,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Medication marked as taken'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
+            backgroundColor: Theme
+                .of(context)
+                .colorScheme
+                .primary,
           ),
         );
       }
@@ -156,22 +201,24 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Theme.of(context).colorScheme.error,
+            content: Text('Error: $e'),
+            backgroundColor: Theme
+                .of(context)
+                .colorScheme
+                .error,
           ),
         );
       }
     }
   }
 
-  Future<void> _rescheduleReminder(String reminderId, String oldTime) async {
+  Future<void> _rescheduleReminder(String reminderId, String oldTime,
+      String medicineName) async {
     final timeParts = oldTime.split(':');
     final initialTime = TimeOfDay(
-      hour: int.parse(timeParts[0]),
-      minute: int.parse(timeParts[1]),
+      hour: int.tryParse(timeParts[0]) ?? 0,
+      minute: int.tryParse(timeParts[1]) ?? 0,
     );
-
-    if (!mounted) return;
 
     final newTime = await showTimePicker(
       context: context,
@@ -179,26 +226,34 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
 
     if (newTime != null) {
-      final newTimeStr = '${newTime.hour}:${newTime.minute}';
+      final newDateTime = DateTime(
+        DateTime
+            .now()
+            .year,
+        DateTime
+            .now()
+            .month,
+        DateTime
+            .now()
+            .day,
+        newTime.hour,
+        newTime.minute,
+      );
 
       try {
         await _medicationRepository.rescheduleReminder(
           reminderId,
-          newTime: newTimeStr,
+          newTime: newDateTime,
+          medicineName: medicineName,
         );
-
-        // await _notificationService.cancelNotification(reminderId.hashCode);
-        // await _notificationService.scheduleMedicationNotification(
-        //   reminderId: reminderId,
-        //   time: newTimeStr,
-        //   medicationName: 'your medication', // You might want to pass the actual name
-        // );
-
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Rescheduled to $newTimeStr'),
-              backgroundColor: Theme.of(context).colorScheme.primary,
+              content: Text('Rescheduled to ${newTime.format(context)}'),
+              backgroundColor: Theme
+                  .of(context)
+                  .colorScheme
+                  .primary,
             ),
           );
         }
@@ -206,8 +261,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error: ${e.toString()}'),
-              backgroundColor: Theme.of(context).colorScheme.error,
+              content: Text('Error: $e'),
+              backgroundColor: Theme
+                  .of(context)
+                  .colorScheme
+                  .error,
             ),
           );
         }
@@ -215,50 +273,43 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
   }
 
-  void _showSOSDialog() {
-    final theme = Theme.of(context);
+  Future<void> _scheduleAllReminders() async {
+    final notificationService = NotificationService();
+    await notificationService.initNotification();
 
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text("Emergency SOS", style: theme.textTheme.headlineSmall),
-        content: Text("Are you sure you want to trigger SOS?",
-            style: theme.textTheme.bodyLarge),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text("Cancel", style: TextStyle(color: theme.colorScheme.error)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: theme.colorScheme.primary,
-            ),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              // await _notificationService.triggerSOSNotification();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text("SOS Triggered! Help is on the way!"),
-                    backgroundColor: theme.colorScheme.primary,
-                  ),
-                );
-              }
-            },
-            child: Text("Confirm", style: TextStyle(color: theme.colorScheme.onPrimary)),
-          ),
-        ],
-      ),
-    );
+    final remindersSnapshot = await _medicationRepository.getReminders();
+
+    for (var doc in remindersSnapshot.docs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final timeParts = (data['time'] as String).split(':');
+      final int hour = int.tryParse(timeParts[0]) ?? 0;
+      final int minute = int.tryParse(timeParts[1]) ?? 0;
+      final String medicationName = data['medication'] ?? 'Medicine';
+      final int reminderId = data['reminderId'] ?? doc.id.hashCode;
+
+      await notificationService.scheduleNotification(
+        id: reminderId,
+        title: 'Time for $medicationName',
+        body: 'Please take your $medicationName now!',
+        hour: hour,
+        minute: minute,
+      );
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('All reminders scheduled successfully!')),
+      );
+    }
   }
 
-  void _navigateToReschedule() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const ReschedulePage()));
-  }
+  void _navigateToReschedule() =>
+      Navigator.push(
+          context, MaterialPageRoute(builder: (_) => const ReschedulePage()));
 
-  void _navigateToAddReminder() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => AddReminderPage()));
-  }
+  void _navigateToAddReminder() =>
+      Navigator.push(
+          context, MaterialPageRoute(builder: (_) => const AddReminderPage()));
 
   void _navigateToProfile() {
     Navigator.push(
@@ -273,153 +324,194 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     try {
       await FirebaseAuth.instance.signOut();
       if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          '/login',
-              (route) => false,
-        );
+        Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Logout failed: ${e.toString()}'),
-            backgroundColor: Theme.of(context).colorScheme.error,
+            content: Text('Logout failed: $e'),
+            backgroundColor: Theme
+                .of(context)
+                .colorScheme
+                .error,
           ),
         );
       }
     }
   }
 
+  void showSuccessDialog(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 32),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _subscribeToReminders() {
+    setState(() {
+      _reminderStream = _medicationRepository.getActiveRemindersStream();  // however you're initializing it
+    });
+  }
+
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      print("🟢 App resumed — reloading reminders");
+      _subscribeToReminders();
+    }
+  }
+
+
   @override
   void dispose() {
     _animationController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    _reminderSubscription.cancel();
+
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final theme = Theme.of(context);
     final currentDate = DateFormat('MMMM dd, yyyy').format(DateTime.now());
     final dayName = DateFormat('EEEE').format(DateTime.now());
 
-    return Scaffold(
-      backgroundColor: theme.colorScheme.background,
-      drawer: HomeDrawer(
-        userData: _userData,
-        onProfilePressed: _navigateToProfile,
-        onLogoutPressed: _logout,
-      ),
-      appBar: AppBar(
-        backgroundColor: theme.colorScheme.primary,
-        title: Text('MedSarthi', style: theme.textTheme.headlineSmall?.copyWith(
-          color: theme.colorScheme.onPrimary,
-        )),
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: Icon(Icons.menu, color: theme.colorScheme.onPrimary),
-            onPressed: () => Scaffold.of(context).openDrawer(),
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _reminderStream,
+      builder: (context, snapshot) {
+        print("🔄 StreamBuilder triggered");  // 👈 add this here
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        }
+
+        final reminders = snapshot.data!.docs;
+
+        return Scaffold(
+          backgroundColor: theme.colorScheme.background,
+          drawer: HomeDrawer(
+            userData: _userData,
+            onProfilePressed: _navigateToProfile,
+            onLogoutPressed: _logout,
           ),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.notifications, color: theme.colorScheme.onPrimary),
-            onPressed: () {
-              // Navigate to notifications page
-            },
-          ),
-          GestureDetector(
-            onTap: _navigateToProfile,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: CircleAvatar(
-                backgroundColor: theme.colorScheme.secondary,
-                child: Text(
-                  _userData?['username']?.toString().isNotEmpty == true
-                      ? _userData!['username'][0].toUpperCase()
-                      : 'U',
-                  style: TextStyle(color: theme.colorScheme.onSecondary),
+          appBar: AppBar(
+            backgroundColor: theme.colorScheme.primary,
+            title: Text('MedSarthi',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: theme.colorScheme.onPrimary,
+                )),
+            leading: Builder(
+              builder: (context) => IconButton(
+                icon: Icon(Icons.menu, color: theme.colorScheme.onPrimary),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
+            ),
+            actions: [
+              GestureDetector(
+                onTap: _navigateToProfile,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: CircleAvatar(
+                    backgroundColor: theme.colorScheme.secondary,
+                    child: Text(
+                      _userData?['username']?.toString().isNotEmpty == true
+                          ? _userData!['username'][0].toUpperCase()
+                          : 'U',
+                      style: TextStyle(color: theme.colorScheme.onSecondary),
+                    ),
+                  ),
                 ),
+              ),
+            ],
+          ),
+
+          resizeToAvoidBottomInset: true,
+
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  HomeHeader(
+                    username: _userData?['username'] ?? 'User',
+                    currentDate: currentDate,
+                  ),
+                  const SizedBox(height: 10),
+                  RemainingMedCard(remaining: reminders.length),
+                  const SizedBox(height: 10),
+                  const HealthTipCard(),
+                  const SizedBox(height: 10),
+                  ActionButtons(
+                    onNewSchedule: _navigateToAddReminder,
+                    onReschedule: _navigateToReschedule,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Upcoming Reminders',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  /// ✅ Expanded used properly so ReminderList scrolls
+                  Expanded(
+                    child: ReminderList(
+                      reminders: reminders,
+                      onMedicationTaken: (String id) async {
+                        await _medicationRepository.markAsTaken(id);
+                        if (mounted) {
+                          showSuccessDialog(context, "✅ Great job! You've taken your medicine 🎉");
+                        }
+                      },
+                      onReschedule: (id, time, name) async {
+                        _navigateToReschedule();
+                        await _scheduleAllReminders();
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: SlideTransition(
-            position: _slideAnimation,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                HomeHeader(
-                  username: _userData?['username'] ?? 'User',
-                  currentDate: currentDate,
-                ),
-                const SizedBox(height: 20),
-                ProgressCircle(
-                  dayName: dayName,
-                  completed: _completedMeds,
-                  total: _totalMeds,
-                ),
-                const SizedBox(height: 20),
-                ActionButtons(
-                  onNewSchedule: _navigateToAddReminder,
-                  onReschedule: _navigateToReschedule,
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Upcoming Reminders',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                // Text
-                const SizedBox(height: 10),
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>
-                    (
-                    stream: _medicationRepository.getRemindersStream(),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                        return Center(child: Text('Error: ${snapshot.error}'));
-                      }
 
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                        return const Center(child: Text('No reminders found'));
-                      }
-
-                      return ReminderList(
-                        reminders: snapshot.data!.docs,
-                        onMedicationTaken: _markAsTaken,
-                        onReschedule: _rescheduleReminder,
-                      );
-
-                    },
-                  ),
-                ),
-              ],
-            ),
+          floatingActionButton: FloatingButtons(
+            onAddReminderPressed: _navigateToAddReminder,
           ),
-        ),
-      ),
-      floatingActionButton: FloatingButtons(
-        onSOSPressed: _showSOSDialog,
-        onAddReminderPressed: _navigateToAddReminder,
-      ),
+        );
+
+
+
+      },
     );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+
 class ProgressCircle extends StatelessWidget {
   final String dayName;
   final int completed;
@@ -8,8 +9,8 @@ class ProgressCircle extends StatelessWidget {
   const ProgressCircle({
     super.key,
     required this.dayName,
-    this.completed = 0,
-    this.total = 2,
+    required this.completed,
+    required this.total,
   });
 
   @override
@@ -37,24 +38,11 @@ class ProgressCircle extends StatelessWidget {
               Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    'INTAKES',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Text('INTAKES', style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  Text(
-                    '$completed / $total',
-                    style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
+                  Text('$completed / $total', style: Theme.of(context).textTheme.displayMedium?.copyWith(color: Theme.of(context).colorScheme.primary)),
                   const SizedBox(height: 4),
-                  Text(
-                    dayName,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
+                  Text(dayName, style: Theme.of(context).textTheme.bodyMedium),
                 ],
               ),
             ],
