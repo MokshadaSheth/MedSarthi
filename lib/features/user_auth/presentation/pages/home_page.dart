@@ -46,6 +46,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     _initializeAnimations();
     _initializeApp();
     _startReminderListener();
+    _scheduleAllReminders();
     _reminderStream = _medicationRepository.getActiveRemindersStream();
     WidgetsBinding.instance.addObserver(this);
     _subscribeToReminders();
@@ -70,7 +71,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     try {
       await _loadUserData();
       await _loadMedicationCounts();
-      await _scheduleAllReminders();
+      // await _scheduleAllReminders();
     } catch (e) {
       debugPrint('Initialization error: $e');
     } finally {
@@ -89,26 +90,34 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
         .doc(userId)
         .collection('reminders')
         .snapshots()
-        .listen((snapshot) {
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final timeString = data['time'] as String;
+        .listen((snapshot) async {
+      for (var change in snapshot.docChanges) {
+        final data = change.doc.data();
+        if (data == null) continue;
 
-        // Parse 'HH:mm' string to hour & minute
-        final timeParts = timeString.split(':');
+        final timeParts = (data['time'] as String).split(':');
         final hour = int.tryParse(timeParts[0]) ?? 0;
         final minute = int.tryParse(timeParts[1]) ?? 0;
+        final medName = data['medication'] ?? 'Medicine';
+        final id = data['reminderId'] ?? change.doc.id.hashCode;
 
-        NotificationService().scheduleNotification(
-          id: doc.id.hashCode,
-          // unique per document
-          title: 'Medication Reminder',
-          body: 'Time to take your ${data['medication']}',
-          hour: hour,
-          minute: minute,
-        );
+        final notiService = NotificationService();
+
+        if (change.type == DocumentChangeType.removed) {
+          await notiService.cancelNotification(id);
+        } else {
+          await notiService.scheduleNotification(
+            id: id,
+            title: 'Medication Reminder',
+            body: 'Please take your $medName now!',
+            hour: hour,
+            minute: minute,
+          );
+        }
       }
     });
+
+
   }
 
   Future<void> _loadUserData() async {
@@ -212,8 +221,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     }
   }
 
-  Future<void> _rescheduleReminder(String reminderId, String oldTime,
-      String medicineName) async {
+  Future<void> _rescheduleReminder(
+      String reminderId, String oldTime, String medicineName) async {
     final timeParts = oldTime.split(':');
     final initialTime = TimeOfDay(
       hour: int.tryParse(timeParts[0]) ?? 0,
@@ -227,33 +236,38 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
     if (newTime != null) {
       final newDateTime = DateTime(
-        DateTime
-            .now()
-            .year,
-        DateTime
-            .now()
-            .month,
-        DateTime
-            .now()
-            .day,
+        DateTime.now().year,
+        DateTime.now().month,
+        DateTime.now().day,
         newTime.hour,
         newTime.minute,
       );
 
       try {
+        // Cancel the existing notification
+        await NotificationService().cancelNotification(reminderId.hashCode);
+
+        // Update Firestore reminder with new time
         await _medicationRepository.rescheduleReminder(
           reminderId,
           newTime: newDateTime,
           medicineName: medicineName,
         );
+
+        // Schedule new notification for this reminder
+        await NotificationService().scheduleNotification(
+          id: reminderId.hashCode,
+          title: 'Medication Reminder',
+          body: 'Please take your $medicineName now!',
+          hour: newTime.hour,
+          minute: newTime.minute,
+        );
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Rescheduled to ${newTime.format(context)}'),
-              backgroundColor: Theme
-                  .of(context)
-                  .colorScheme
-                  .primary,
+              backgroundColor: Theme.of(context).colorScheme.primary,
             ),
           );
         }
@@ -262,10 +276,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Error: $e'),
-              backgroundColor: Theme
-                  .of(context)
-                  .colorScheme
-                  .error,
+              backgroundColor: Theme.of(context).colorScheme.error,
             ),
           );
         }
@@ -277,10 +288,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     final notificationService = NotificationService();
     await notificationService.initNotification();
 
-    final remindersSnapshot = await _medicationRepository.getReminders();
+    final remindersSnapshot = await _medicationRepository.getActiveRemindersStream().first;
 
     for (var doc in remindersSnapshot.docs) {
-      final data = doc.data() as Map<String, dynamic>;
+      final data = doc.data();
       final timeParts = (data['time'] as String).split(':');
       final int hour = int.tryParse(timeParts[0]) ?? 0;
       final int minute = int.tryParse(timeParts[1]) ?? 0;
@@ -298,10 +309,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('All reminders scheduled successfully!')),
+        const SnackBar(content: Text('All reminders scheduled successfully!')),
       );
     }
   }
+
+
 
   void _navigateToReschedule() =>
       Navigator.push(

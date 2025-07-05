@@ -42,13 +42,12 @@ class _AddReminderPageState extends State<AddReminderPage> {
 
     final User? user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      setState(() => _errorMessage = "User not authenticated");
+      _showSnackBar("User not authenticated", isError: true);
       return;
     }
 
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
     });
 
     try {
@@ -63,34 +62,50 @@ class _AddReminderPageState extends State<AddReminderPage> {
         'notes': _notesController.text.trim(),
         'timestamp': FieldValue.serverTimestamp(),
         'isActive': true,
-        'status': 'pending', // 👈 Important fix added
+        'status': 'pending',
       });
 
-      // ⏰ Schedule local notification immediately
+      // Schedule notification
       final timeParts = _timeController.text.split(':');
       final hour = int.parse(timeParts[0]);
       final minute = int.parse(timeParts[1]);
 
       await NotificationService().scheduleNotification(
-        id: docRef.id.hashCode, // unique ID based on firestore doc ID
+        id: docRef.id.hashCode,
         title: 'Medication Reminder',
-        body:
-        "It's time to take your medicine: ${_medicationController.text.trim()}",
+        body: 'Please take your ${_medicationController.text.trim()} now!',
         hour: hour,
         minute: minute,
       );
 
       if (mounted) {
+        _showSnackBar("Reminder added and notification scheduled successfully!");
+
+        // Optionally: Clear form after save
+        _formKey.currentState!.reset();
+        _timeController.clear();
+        _selectedTime = null;
+
         Navigator.pop(context);
       }
     } catch (e) {
-      setState(() => _errorMessage = "Error saving reminder: ${e.toString()}");
+      _showSnackBar("Failed to save reminder: $e", isError: true);
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError
+            ? Theme.of(context).colorScheme.error
+            : Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
+
 
   @override
   void dispose() {
