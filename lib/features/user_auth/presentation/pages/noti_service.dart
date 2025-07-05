@@ -2,6 +2,9 @@ import 'dart:io';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -254,5 +257,26 @@ class NotificationService {
       }
     }
   }
+
+//Centralized Notification Scheduler
+//   Future<void> scheduleAllReminders(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) async {
+//     await initNotification();
+//     for (var doc in docs) {
+//       final data = doc.data();
+//       final timeParts = (data['time'] as String).split(':');
+//       final hour = int.tryParse(timeParts[0]) ?? 0;
+//       final minute = int.tryParse(timeParts[1]) ?? 0;
+//       final String medName = data['medication'] ?? 'Medicine';
+//       final int reminderId = data['reminderId'] ?? doc.id.hashCode;
+//
+//       await scheduleNotification(
+//         id: reminderId,
+//         title: 'Medication Reminder',
+//         body: 'Please take your $medName now!',
+//         hour: hour,
+//         minute: minute,
+//       );
+//     }
+//   }
 
 }

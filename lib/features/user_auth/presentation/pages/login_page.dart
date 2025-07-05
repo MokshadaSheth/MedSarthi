@@ -6,6 +6,8 @@ import 'package:med_sarathi/features/user_auth/firebase_auth_implementation/fire
 import 'package:med_sarathi/features/user_auth/presentation/pages/home_page.dart';
 import 'package:med_sarathi/features/user_auth/presentation/widgets/complete_profile_page.dart'; // Add this import
 import 'signup_page.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -58,6 +60,14 @@ class _LoginPageState extends State<LoginPage> {
     String email = _emailController.text.trim();
     String password = _passwordController.text.trim();
 
+    // Check if fields are empty
+    if (email.isEmpty || password.isEmpty) {
+      setState(() {
+        _errorMessage = "Please enter both email and password.";
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -70,11 +80,29 @@ class _LoginPageState extends State<LoginPage> {
       }
     } on FirebaseAuthException catch (e) {
       setState(() {
-        _errorMessage = e.message;
+        switch (e.code) {
+          case 'invalid-email':
+            _errorMessage = "The email address is invalid.";
+            break;
+          case 'user-not-found':
+            _errorMessage = "No user found for that email.";
+            break;
+          case 'wrong-password':
+            _errorMessage = "Incorrect password. Please try again.";
+            break;
+          case 'user-disabled':
+            _errorMessage = "This user account has been disabled.";
+            break;
+          case 'too-many-requests':
+            _errorMessage = "Too many failed attempts. Please try again later.";
+            break;
+          default:
+            _errorMessage = "Login failed. Please check your details.";
+        }
       });
     } catch (e) {
       setState(() {
-        _errorMessage = "Unexpected error: ${e.toString()}";
+        _errorMessage = "An unexpected error occurred. Please try again.";
       });
     } finally {
       if (mounted) {
@@ -85,26 +113,53 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+
   void _signInWithGoogle() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
+    final GoogleSignIn _googleSignIn = GoogleSignIn(
+      scopes: ['email'],
+    );
+
     try {
-      User? user = await _authService.signInWithGoogle();
+      await _googleSignIn.signOut(); // force-clear any previous cached account
+
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        // User canceled the sign-in dialog
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Google sign-in canceled.";
+        });
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final UserCredential userCredential =
+      await FirebaseAuth.instance.signInWithCredential(credential);
+
+      final user = userCredential.user;
+
       if (user != null) {
-        // Check if this is a new user (first time login)
+        // Check if user document exists in Firestore
         final userDoc = await _firestore.collection('Users').doc(user.uid).get();
 
         if (!userDoc.exists) {
-          // New user - create basic document
-          await _firestore.collection('Users').doc(user.uid).set({
-            'email': user.email,
-            'username': user.displayName ?? '',
-            'profileCompleted': false,
-            'createdAt': FieldValue.serverTimestamp(),
+          setState(() {
+            _errorMessage = "No account found for this email. Please sign up first.";
+            _isLoading = false;
           });
+          await FirebaseAuth.instance.signOut();
+          await _googleSignIn.signOut();
+          return;
         }
 
         await _checkProfileCompletion(user);
@@ -122,8 +177,24 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+
+
+
   @override
   Widget build(BuildContext context) {
+
+    // Show error snackbar if there's a message
+    if (_errorMessage != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_errorMessage!)),
+        );
+        setState(() {
+          _errorMessage = null; // Clear the message after showing
+        });
+      });
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFE3F2FD),
       body: Padding(
