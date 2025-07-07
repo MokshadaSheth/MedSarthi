@@ -80,7 +80,7 @@ class MedicationRepository {
     // );
   }
 
-  /// Get live stream of all reminders for current user
+  // /// Get live stream of all reminders for current user
   Stream<QuerySnapshot<Map<String, dynamic>>> getRemindersStream() {
     final user = _auth.currentUser;
     if (user == null) throw Exception('User not logged in');
@@ -89,6 +89,7 @@ class MedicationRepository {
         .collection('Users')
         .doc(user.uid)
         .collection('reminders')
+        .where('status', whereIn: ['pending', 'rescheduled'])
         .withConverter<Map<String, dynamic>>(
       fromFirestore: (snapshot, _) => snapshot.data()!,
       toFirestore: (data, _) => data,
@@ -96,8 +97,7 @@ class MedicationRepository {
         .snapshots();
   }
 
-  /// Get live stream of active reminders (excluding those with status 'taken')
-  Stream<QuerySnapshot<Map<String, dynamic>>> getActiveRemindersStream() {
+  Future<QuerySnapshot<Map<String, dynamic>>> getActiveReminders() {
     final user = _auth.currentUser;
     if (user == null) throw Exception('User not logged in');
 
@@ -105,11 +105,12 @@ class MedicationRepository {
         .collection('Users')
         .doc(user.uid)
         .collection('reminders')
-        .where('status', isNotEqualTo: 'taken')
+        .where('status', whereIn: ['pending', 'rescheduled'])
         .withConverter<Map<String, dynamic>>(
       fromFirestore: (snapshot, _) => snapshot.data()!,
       toFirestore: (data, _) => data,
     )
-        .snapshots();
+        .get();
   }
+
 }

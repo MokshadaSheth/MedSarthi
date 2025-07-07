@@ -18,6 +18,7 @@ class ActionButtons extends StatelessWidget {
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.lightBlueAccent,
+            foregroundColor: Colors.black,  // 👈 ensures text/icon stay black
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             elevation: 5,
@@ -29,6 +30,7 @@ class ActionButtons extends StatelessWidget {
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.orangeAccent,
+            foregroundColor: Colors.black,  // 👈 ensures text/icon stay black
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             elevation: 5,
