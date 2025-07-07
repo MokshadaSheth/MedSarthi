@@ -47,7 +47,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     _initializeApp();
     _startReminderListener();
     _scheduleAllReminders();
-    _reminderStream = _medicationRepository.getActiveRemindersStream();
+    _reminderStream = _medicationRepository.getRemindersStream();
     WidgetsBinding.instance.addObserver(this);
     _subscribeToReminders();
   }
@@ -84,14 +84,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
   void _startReminderListener() {
     final userId = FirebaseAuth.instance.currentUser!.uid;
-
+    print("---------Inside Start Listener---------");
     _reminderSubscription = FirebaseFirestore.instance
         .collection('Users')
         .doc(userId)
         .collection('reminders')
+        .where('status', isNotEqualTo: 'taken') // Only listen to active reminders
         .snapshots()
         .listen((snapshot) async {
       for (var change in snapshot.docChanges) {
+        print("Inside for----------------------------------");
         final data = change.doc.data();
         if (data == null) continue;
 
@@ -287,11 +289,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   Future<void> _scheduleAllReminders() async {
     final notificationService = NotificationService();
     await notificationService.initNotification();
+    await NotificationService().cancelAllNotifications();
+    final remindersSnapshot = await _medicationRepository.getActiveReminders();
 
-    final remindersSnapshot = await _medicationRepository.getActiveRemindersStream().first;
 
     for (var doc in remindersSnapshot.docs) {
       final data = doc.data();
+
+      print("🔍 Scheduling for: ${data['medication']} | status: ${data['status']}");
+
       final timeParts = (data['time'] as String).split(':');
       final int hour = int.tryParse(timeParts[0]) ?? 0;
       final int minute = int.tryParse(timeParts[1]) ?? 0;
@@ -316,6 +322,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
 
 
+
   void _navigateToReschedule() =>
       Navigator.push(
           context, MaterialPageRoute(builder: (_) => const ReschedulePage()));
@@ -328,7 +335,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ProfilePage(userData: _userData),
+        builder: (_) => const ProfilePage(),
       ),
     );
   }
@@ -382,7 +389,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
   void _subscribeToReminders() {
     setState(() {
-      _reminderStream = _medicationRepository.getActiveRemindersStream();  // however you're initializing it
+      _reminderStream = _medicationRepository.getRemindersStream();  // however you're initializing it
     });
   }
 

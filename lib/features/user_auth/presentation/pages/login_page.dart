@@ -63,7 +63,7 @@ class _LoginPageState extends State<LoginPage> {
     // Check if fields are empty
     if (email.isEmpty || password.isEmpty) {
       setState(() {
-        _errorMessage = "Please enter both email and password.";
+        // _errorMessage = "Please enter both email and password.";
       });
       return;
     }
@@ -230,12 +230,12 @@ class _LoginPageState extends State<LoginPage> {
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
-                const SizedBox(height: 10),
-                if (_errorMessage != null)
-                  Text(
-                    _errorMessage!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
+                // const SizedBox(height: 10),
+                // if (_errorMessage != null)
+                //   Text(
+                //     _errorMessage!,
+                //     style: const TextStyle(color: Colors.red),
+                //   ),
                 const SizedBox(height: 20),
                 _isLoading
                     ? const CircularProgressIndicator()
